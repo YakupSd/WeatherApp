@@ -11,6 +11,11 @@ import CoreLocation
 class HomeViewController: UIViewController {
 
     // MARK: - Properties
+    var viewModel: WeatherViewModel?{
+        didSet{
+            configure()
+        }
+    }
     private let backgroundImageView = UIImageView()
     private let searchStackView = SearchStackView()
     private let mainStackView = UIStackView()
@@ -18,12 +23,15 @@ class HomeViewController: UIViewController {
     private let tempLabel = UILabel()
     private let cityLabel = UILabel()
     private let locationManager = CLLocationManager()
+    private let service = WeatherService()
+    private let admin = UILabel()
     // MARK: - Lifecycle
    
     override func viewDidLoad() {
         super.viewDidLoad()
         style()
         layout()
+        configureLocation()
     }
 }
 
@@ -39,6 +47,7 @@ extension HomeViewController {
         searchStackView.translatesAutoresizingMaskIntoConstraints = false
         searchStackView.spacing = 10 // her eleman arasındaki boşluk
         searchStackView.axis = .horizontal // yatay yada dikey düzlem seçimi
+        searchStackView.delegate = self
         //mainStackView style
         mainStackView.translatesAutoresizingMaskIntoConstraints = false
         mainStackView.spacing = 20
@@ -56,15 +65,17 @@ extension HomeViewController {
         cityLabel.translatesAutoresizingMaskIntoConstraints = false
         cityLabel.font = UIFont.preferredFont(forTextStyle: .largeTitle)
         cityLabel.text = "Kütahya"
+        //admin style
+        admin.translatesAutoresizingMaskIntoConstraints = false
+        admin.textColor = UIColor.darkText
+        admin.font = UIFont.boldSystemFont(ofSize: 25)
+        admin.text = "Yakup Suda Tarafından Yapıldı"
+        
     }
     private func layout(){
         view.addSubview(backgroundImageView)
+        view.addSubview(admin)
         view.addSubview(mainStackView)
-        /*
-         view.addSubview(locationButton)
-         view.addSubview(searchButton)
-         view.addSubview(searchTextField)
-         */
         mainStackView.addArrangedSubview(searchStackView)
         mainStackView.addArrangedSubview(statusImageView)
         mainStackView.addArrangedSubview(tempLabel)
@@ -88,29 +99,10 @@ extension HomeViewController {
             statusImageView.heightAnchor.constraint(equalToConstant: 100),
             statusImageView.widthAnchor.constraint(equalToConstant: 100),
             
-
-            
-            /*locationButton işlemleri
-            locationButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),// gücenli alan çentik altı
-            locationButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
-             
-             //searchButton işlemleri
-             searchButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
-             searchButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),//sağ taraf işelmeri için - kullanmaka gerekiyor
-             // view.trailingAnchor.constraint(equalTo: searchButton.trailingAnchor, constant: 12) böyle yaparsak - ye gerek yok
-             
-             //searchTextField işlemleri
-             searchTextField.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
-             searchTextField.leadingAnchor.constraint(equalTo: locationButton.trailingAnchor, constant: 10),
-             //searchTextField.trailingAnchor.constraint(equalTo: searchButton.leadingAnchor, constant: -10),
-             searchButton.leadingAnchor.constraint(equalTo: searchTextField.trailingAnchor, constant: 10)
-            */
-          
-            
-            
-            
-
-            
+            //admin işlemleri
+            admin.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -20),
+            admin.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 30),
+            admin.trailingAnchor.constraint(equalTo: view.trailingAnchor , constant: -10)
         ])
     }
     private func attributedText(with text: String) -> NSMutableAttributedString{
@@ -119,7 +111,63 @@ extension HomeViewController {
         return attributedText
     }
     private func configureLocation(){
-        locationManager.requestWhenInUseAuthorization()
+        locationManager.requestWhenInUseAuthorization() // izin işlemi
+        locationManager.startUpdatingLocation() // lokasyonu al
+        locationManager.desiredAccuracy = kCLLocationAccuracyBest // doğrulul payı
+        locationManager.delegate = self
+        
+    }
+    
+    private func configure(){
+        guard let viewModel = self.viewModel else { return }
+        self.cityLabel.text = viewModel.cityName
+        self.tempLabel.attributedText = attributedText(with: viewModel.tempString)
+        self.statusImageView.image = UIImage(systemName: viewModel.statusName)
+    }
+    
+    private func showErrorAlert(forErrorMessega message: String, forError error: String){
+        let alert = UIAlertController(title: error, message: message, preferredStyle: .alert)
+        let okButton = UIAlertAction(title: "Error", style: UIAlertAction.Style.default)
+        alert.addAction(okButton)
+        self.present(alert, animated: true)
+    }
+    
+    private func parseError(error: ServiceError){
+        switch error{
+        case .serverError:
+            showErrorAlert(forErrorMessega: error.rawValue, forError: "Error")
+        case .decodingError:
+            showErrorAlert(forErrorMessega: error.rawValue, forError:  "Error")
+        }
     }
 }
-
+//MARK: - CLLocationManagerDelegete
+extension HomeViewController: CLLocationManagerDelegate {
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        let location = locations.last!
+        locationManager.stopUpdatingLocation()
+        self.service.fetchWeatherLocation(latitude: location.coordinate.latitude, longitude: location.coordinate.longitude) { result in
+            switch result{
+            case .success(let result):
+                self.viewModel = WeatherViewModel(weatherModel: result)
+            case .failure(let error):
+                self.parseError(error: error)
+            }
+        }
+    }
+}
+//MARK: -SearchStackViewDelegate
+extension HomeViewController: SearchStackViewDelegate{
+    func updatingLocation(_ searchStackView: SearchStackView) {
+        self.locationManager.startUpdatingLocation()
+    }
+    func didFailWithError(_ searchStackView: SearchStackView, error: ServiceError) {
+        parseError(error: error)
+    }
+    
+    func didFetchWeather(_ searchStackView: SearchStackView, weatherModel: WeatherModel) {
+        self.viewModel = WeatherViewModel(weatherModel: weatherModel)
+    }
+    
+    
+}
